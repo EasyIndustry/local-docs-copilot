@@ -1,0 +1,19 @@
+# Copiá a ~/.config/systemd/user/doc-copiloto-daemon.service, reemplazá /ruta/a/este/repo,
+# y corré:
+#   systemctl --user daemon-reload
+#   systemctl --user enable --now doc-copiloto-daemon.service
+#   loginctl enable-linger $USER   # para que corra incluso sin sesión logueada
+
+[Unit]
+Description=Demonio de cola del copiloto de docs local
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/ruta/a/este/repo
+ExecStart=/ruta/a/este/repo/.venv/bin/python mcp_server/daemon.py
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=default.target

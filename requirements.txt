@@ -1,0 +1,5 @@
+# mcp>=2 renombró FastMCP a MCPServer y cambió la API (ver mcp_server/server.py, que usa
+# la API v1 de FastMCP). Pineado para no romper con una instalación futura del venv.
+mcp<2
+pyyaml
+requests

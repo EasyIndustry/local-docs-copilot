@@ -1,0 +1,15 @@
+# Copiá este archivo a config.yaml y ajustalo a tu corpus.
+corpus_root: /ruta/a/tu/proyecto
+
+include:
+  - docs/**/*.md
+  - README.md
+
+exclude:
+  - "node_modules/**"
+  - ".git/**"
+
+embed_model: mxbai-embed-large
+chunk_size_chars: 1000
+chunk_overlap_chars: 100
+index_path: ./index.json

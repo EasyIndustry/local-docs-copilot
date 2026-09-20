@@ -1,0 +1,14 @@
+# Copiá a preguntas.yaml y reemplazá con preguntas reales sobre TU corpus.
+# Cada pregunta debería tener una respuesta verificable en un archivo puntual del corpus,
+# para poder revisar a mano si el modelo acertó (fidelidad) sin alucinar.
+
+- id: 1
+  pregunta: "¿Qué hace falta configurar antes de correr el proyecto en desarrollo?"
+  fuente: README.md
+
+- id: 2
+  pregunta: "¿Qué decisión de arquitectura quedó documentada como 'todavía sin resolver'?"
+  fuente: docs/arquitectura.md
+  nota: >
+    buen caso trampa: si tu corpus tiene documentación autodeclarada como incompleta,
+    usala para ver si el modelo local dice "no sé" en vez de inventar una respuesta.

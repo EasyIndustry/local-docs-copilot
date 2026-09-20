@@ -1,0 +1,7 @@
+.venv/
+corpus_index/config.yaml
+corpus_index/index.json
+bench/preguntas.yaml
+bench/resultados/
+__pycache__/
+*.pyc
