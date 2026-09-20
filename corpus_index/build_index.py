@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
 """Indexa el corpus de docs en embeddings locales (Ollama) para RAG.
 
-Uso: python3 build_index.py [config.yaml]
+Uso:
+  python3 build_index.py                    # indexa el proyecto actual (cwd)
+  python3 build_index.py /ruta/al/proyecto   # indexa ese proyecto puntual
+  python3 build_index.py --config config.yaml  # modo legacy, config explícito
 """
 import glob
 import json
@@ -12,12 +15,22 @@ import time
 import requests
 import yaml
 
+import project_config
+
 OLLAMA_URL = "http://localhost:11434/api/embeddings"
 
 
 def load_config(path):
     with open(path) as f:
         return yaml.safe_load(f)
+
+
+def resolve_cli_config():
+    args = sys.argv[1:]
+    if args and args[0] == "--config":
+        return load_config(args[1])
+    proyecto = args[0] if args else os.getcwd()
+    return project_config.resolve(proyecto)
 
 
 def collect_files(cfg):
@@ -86,12 +99,11 @@ def embed(text, model):
     return resp.json()["embedding"]
 
 
-def main():
-    cfg_path = sys.argv[1] if len(sys.argv) > 1 else "config.yaml"
-    cfg = load_config(cfg_path)
-
+def build(cfg, log=print):
+    """Indexa un proyecto ya resuelto (cfg de project_config.resolve o config.yaml legacy).
+    Reusable tanto desde la CLI como desde el demonio (indexado automático on-demand)."""
     files = collect_files(cfg)
-    print(f"Archivos a indexar: {len(files)}")
+    log(f"Archivos a indexar: {len(files)}")
 
     entries = []
     t0 = time.time()
@@ -99,17 +111,26 @@ def main():
         with open(path, encoding="utf-8", errors="ignore") as f:
             text = f.read()
         rel = os.path.relpath(path, cfg["corpus_root"])
+        j = -1
         for j, chunk in enumerate(chunk_text(text, cfg["chunk_size_chars"], cfg["chunk_overlap_chars"])):
             if not chunk.strip():
                 continue
             vec = embed(chunk, cfg["embed_model"])
             entries.append({"file": rel, "chunk_id": j, "text": chunk, "embedding": vec})
-        print(f"  [{i}/{len(files)}] {rel} -> {j + 1} chunks")
+        log(f"  [{i}/{len(files)}] {rel} -> {j + 1} chunks")
 
     with open(cfg["index_path"], "w") as f:
         json.dump(entries, f)
 
-    print(f"Listo: {len(entries)} chunks indexados en {cfg['index_path']} ({time.time() - t0:.1f}s)")
+    log(f"Listo: {len(entries)} chunks indexados en {cfg['index_path']} ({time.time() - t0:.1f}s)")
+    return len(entries)
+
+
+def main():
+    cfg = resolve_cli_config()
+    print(f"Proyecto: {cfg['corpus_root']}")
+    print(f"Índice: {cfg['index_path']}")
+    build(cfg)
 
 
 if __name__ == "__main__":

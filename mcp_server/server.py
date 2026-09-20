@@ -14,6 +14,13 @@ from mcp.server.fastmcp import FastMCP
 DAEMON_URL = os.environ.get("DOC_COPILOTO_DAEMON_URL", "http://127.0.0.1:8799")
 DEFAULT_MODEL = os.environ.get("DOC_COPILOTO_MODEL", "qwen3:4b-instruct")
 
+# Cwd del proceso en el momento en que Claude Code levantó este servidor MCP — en la práctica,
+# la raíz del proyecto en el que está parada la sesión que lo usa. Uso global en la máquina:
+# cada proyecto tiene su propio índice, resuelto automáticamente por esta ruta (ver
+# corpus_index/project_config.py), en vez de un único corpus fijo. Si el auto-detect falla
+# (proyecto anidado raro, symlinks, etc.), cada tool acepta `proyecto` explícito como override.
+PROJECT_DIR = os.getcwd()
+
 mcp = FastMCP("doc-copiloto")
 
 
@@ -23,23 +30,42 @@ def _submit(tool, args, wait_s):
 
 
 @mcp.tool()
-def buscar_docs(pregunta: str, top_k: int = 10) -> str:
+def buscar_docs(pregunta: str, top_k: int = 10, proyecto: str = "") -> str:
     """Busca los fragmentos de documentación más relevantes para una pregunta, sin resumir
-    (para citar exacto). Encolado: si el demonio está ocupado con otro pedido (p.ej. de otro
-    Claude CLI consultando en paralelo), devuelve un job_id para seguir con consultar_estado.
+    (para citar exacto), en el proyecto actual (detectado solo; pasá `proyecto` con una ruta
+    absoluta si hace falta apuntar a otro). Si nunca se indexó este proyecto, lo indexa antes
+    de responder (puede tardar según cuánta doc tenga). Encolado: si el demonio está ocupado
+    con otro pedido (p.ej. de otro Claude CLI consultando en paralelo), devuelve un job_id para
+    seguir con consultar_estado.
     """
-    data = _submit("buscar_docs", {"pregunta": pregunta, "top_k": top_k}, wait_s=30)
+    data = _submit("buscar_docs", {"pregunta": pregunta, "top_k": top_k, "proyecto": proyecto or PROJECT_DIR}, wait_s=30)
     return _format(data)
 
 
 @mcp.tool()
-def preguntar_docs(pregunta: str, modelo: str = DEFAULT_MODEL, top_k: int = 10) -> str:
-    """Responde una pregunta sobre la documentación indexada con RAG usando el LLM local
-    (100% local, no consume tokens de esta sesión). Si el demonio ya está atendiendo a otro
-    Claude CLI, espera hasta 90s y si no alcanza devuelve un job_id: seguí con
+def preguntar_docs(pregunta: str, modelo: str = DEFAULT_MODEL, top_k: int = 10, proyecto: str = "") -> str:
+    """Responde una pregunta sobre la documentación del proyecto actual con RAG usando el LLM
+    local (100% local, no consume tokens de esta sesión). Pasá `proyecto` (ruta absoluta) si
+    necesitás apuntar a un proyecto distinto del que detecta solo. Si nunca se indexó este
+    proyecto, lo indexa antes de responder (primera vez puede tardar). Si el demonio ya está
+    atendiendo a otro Claude CLI, espera hasta 90s y si no alcanza devuelve un job_id: seguí con
     consultar_estado(job_id) en vez de reintentar la pregunta desde cero.
     """
-    data = _submit("preguntar_docs", {"pregunta": pregunta, "modelo": modelo, "top_k": top_k}, wait_s=90)
+    data = _submit(
+        "preguntar_docs",
+        {"pregunta": pregunta, "modelo": modelo, "top_k": top_k, "proyecto": proyecto or PROJECT_DIR},
+        wait_s=90,
+    )
+    return _format(data)
+
+
+@mcp.tool()
+def reindexar_proyecto(proyecto: str = "") -> str:
+    """Reconstruye el índice del proyecto actual (o el que se pase en `proyecto`) desde cero.
+    Usalo después de editar/agregar documentación, ya que el índice es una foto fija que no se
+    actualiza sola. Primera consulta a un proyecto nuevo ya indexa automáticamente — esto es
+    para forzar un REFRESH de un proyecto que ya tenía índice."""
+    data = _submit("reindexar", {"proyecto": proyecto or PROJECT_DIR}, wait_s=120)
     return _format(data)
 
 

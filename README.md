@@ -67,16 +67,14 @@ Para no pagar el arranque en frío justo cuando hace falta la respuesta:
 3. Llamá `estado_cola()` para confirmar que el modelo ya figura en `modelos_cargados`, o
    directamente `preguntar_docs(...)` (que espera lo que falte de carga si no terminó).
 
-## Instalación
+## Instalación (una sola vez, sirve para todos tus proyectos)
+
+Registrás el MCP **a nivel usuario**, no por proyecto — se instala una vez y queda disponible
+en cualquier sesión de Claude Code en la máquina, sin tener que apuntarlo a un corpus fijo.
 
 ```bash
 python3 -m venv .venv
 .venv/bin/pip install -r requirements.txt
-
-cp corpus_index/config.example.yaml corpus_index/config.yaml
-# editá corpus_root e include/exclude para apuntar a tu propio proyecto
-
-.venv/bin/python corpus_index/build_index.py   # indexa tu corpus
 
 # demonio de cola (recomendado si vas a usar más de un cliente MCP a la vez)
 cp mcp_server/doc-copiloto-daemon.service.example ~/.config/systemd/user/doc-copiloto-daemon.service
@@ -84,21 +82,41 @@ cp mcp_server/doc-copiloto-daemon.service.example ~/.config/systemd/user/doc-cop
 systemctl --user daemon-reload
 systemctl --user enable --now doc-copiloto-daemon.service
 
-# registrar el MCP en Claude Code (a nivel usuario, disponible en cualquier sesión)
+# registrar el MCP en Claude Code (a nivel usuario, disponible en cualquier sesión/proyecto)
 claude mcp add doc-copiloto -s user -- $(pwd)/.venv/bin/python $(pwd)/mcp_server/server.py
 ```
 
+Listo — desde cualquier proyecto, `preguntar_docs(...)` indexa ese proyecto automáticamente
+la primera vez que lo consultás (todo el markdown, excluyendo `node_modules/`, `.git/`, etc.),
+guardando su índice aparte en `~/.cache/doc-copiloto/indices/`. Cada proyecto queda con su
+propio índice — no hay un corpus fijo compartido entre todos.
+
+Si los defaults de indexado no te sirven para un proyecto puntual (traen basura, o falta algo
+fuera de markdown), creá un `.doc-copiloto.yaml` en su raíz — mismas claves que
+`corpus_index/config.example.yaml`, sin `corpus_root` (se infiere solo). Si editaste
+documentación y el índice quedó viejo, llamá `reindexar_proyecto()`.
+
 ## Tools que expone el MCP
 
-- `preguntar_docs(pregunta, modelo?, top_k?)` — RAG completo, responde con el LLM local.
-- `buscar_docs(pregunta, top_k?)` — solo retrieval, sin resumir (para citar textual).
+- `preguntar_docs(pregunta, modelo?, top_k?, proyecto?)` — RAG completo con el LLM local, en
+  el proyecto actual (auto-detectado; pasá `proyecto` con una ruta absoluta si hace falta
+  apuntar a otro).
+- `buscar_docs(pregunta, top_k?, proyecto?)` — solo retrieval, sin resumir (para citar textual).
+- `reindexar_proyecto(proyecto?)` — reconstruye el índice de un proyecto que ya tenía uno.
 - `precalentar_modelo(modelo?)` — carga el modelo a VRAM sin preguntarle nada todavía.
 - `consultar_estado(job_id)` — si tu pedido quedó encolado por estar el demonio ocupado.
 - `estado_cola()` — mirar si hay algo corriendo/encolado y qué está cargado en VRAM ahora.
 
 ## Benchmark propio
 
+Para comparar modelos con un corpus fijo y reproducible (no el modo multi-proyecto del MCP en
+uso real), armá un `config.yaml` explícito:
+
 ```bash
+cp corpus_index/config.example.yaml corpus_index/config.yaml
+# editá corpus_root e include/exclude para apuntar al corpus que quieras usar de referencia
+.venv/bin/python corpus_index/build_index.py --config corpus_index/config.yaml
+
 cp bench/preguntas.example.yaml bench/preguntas.yaml
 # escribí preguntas reales sobre TU corpus, con la fuente exacta de la respuesta correcta
 

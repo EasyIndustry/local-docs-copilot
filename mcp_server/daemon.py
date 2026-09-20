@@ -33,12 +33,22 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import requests
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "corpus_index"))
+import build_index  # noqa: E402
+import project_config  # noqa: E402
 from retrieve import ask, precalentar, search  # noqa: E402
 
 OLLAMA_PS_URL = "http://localhost:11434/api/ps"
-
-INDEX_PATH = os.path.join(os.path.dirname(__file__), "..", "corpus_index", "index.json")
 HOST, PORT = "127.0.0.1", 8799
+
+
+def _index_path_para(proyecto):
+    """Resuelve el índice del proyecto pedido, indexándolo la primera vez si no existe
+    todavía (así el MCP funciona de entrada en cualquier proyecto de la máquina, no solo
+    en el que se haya indexado manualmente una vez)."""
+    cfg = project_config.resolve(proyecto)
+    if not os.path.exists(cfg["index_path"]):
+        build_index.build(cfg, log=lambda *_: None)
+    return cfg["index_path"]
 
 _queue = queue.Queue()
 _jobs = {}  # job_id -> {"status": ..., "result": ..., "error": ..., "tool": ..., "submitted_at": ...}
@@ -55,16 +65,23 @@ def _worker():
             _current_job_id = job_id
         job = _jobs[job_id]
         try:
+            proyecto = job["args"].get("proyecto") or os.getcwd()
             if job["tool"] == "buscar_docs":
-                hits = search(job["args"]["pregunta"], INDEX_PATH, top_k=job["args"].get("top_k", 10))
+                index_path = _index_path_para(proyecto)
+                hits = search(job["args"]["pregunta"], index_path, top_k=job["args"].get("top_k", 10))
                 result = "\n\n".join(f"[{h['file']}] (score={h['score']:.3f})\n{h['text']}" for h in hits)
             elif job["tool"] == "preguntar_docs":
+                index_path = _index_path_para(proyecto)
                 r = ask(
-                    job["args"]["pregunta"], INDEX_PATH,
+                    job["args"]["pregunta"], index_path,
                     model=job["args"].get("modelo", "qwen3:4b-instruct"),
                     top_k=job["args"].get("top_k", 10),
                 )
                 result = f"{r['answer']}\n\nFuentes: {', '.join(r['sources'])}"
+            elif job["tool"] == "reindexar":
+                cfg = project_config.resolve(proyecto)
+                n = build_index.build(cfg, log=lambda *_: None)
+                result = f"Reindexado {proyecto}: {n} chunks en {cfg['index_path']}."
             elif job["tool"] == "precalentar":
                 modelo = job["args"].get("modelo", "qwen3:4b-instruct")
                 precalentar(modelo)
