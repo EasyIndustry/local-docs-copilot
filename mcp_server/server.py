@@ -44,6 +44,22 @@ def preguntar_docs(pregunta: str, modelo: str = DEFAULT_MODEL, top_k: int = 10) 
 
 
 @mcp.tool()
+def precalentar_modelo(modelo: str = DEFAULT_MODEL) -> str:
+    """Dispara la carga del modelo a VRAM SIN hacerle ninguna pregunta todavía. Usar esto al
+    principio de una tarea donde sabés que vas a necesitar el copiloto más adelante, así el
+    arranque en frío (~10-60s en esta GPU) ya pasó cuando llegue el momento de preguntar de
+    verdad. El copiloto arranca en frío por diseño (no mantiene VRAM ocupada sin usarla) — no
+    asumas que ya está caliente, precalentalo si podés planificarlo con anticipación. Esto
+    devuelve rápido (no espera a que termine de cargar); segui con estado_cola() para saber si
+    ya está listo, o directamente llamá preguntar_docs cuando lo necesites (esperará lo que
+    falte)."""
+    data = _submit("precalentar", {"modelo": modelo}, wait_s=2)
+    if data.get("status") == "done":
+        return data["result"]
+    return f"Cargando {modelo} en VRAM (job_id={data.get('job_id')}). Puede tardar hasta ~1 min."
+
+
+@mcp.tool()
 def consultar_estado(job_id: str) -> str:
     """Consulta si un pedido encolado (job_id devuelto por preguntar_docs/buscar_docs cuando
     el demonio estaba ocupado) ya terminó. Si sigue en cola o corriendo, decilo y sugerí
@@ -59,14 +75,16 @@ def consultar_estado(job_id: str) -> str:
 
 @mcp.tool()
 def estado_cola() -> str:
-    """Mirá qué está procesando el copiloto local y cuántos pedidos hay encolados, ANTES de
-    mandar una pregunta pesada — útil para decidir si conviene esperar o hacer otra cosa
-    mientras tanto (p.ej. si hay otro Claude CLI usándolo en paralelo)."""
+    """Mirá qué está procesando el copiloto local, cuántos pedidos hay encolados y qué
+    modelo(s) están cargados en VRAM ahora mismo — útil ANTES de mandar una pregunta pesada,
+    o para chequear si un precalentar_modelo ya terminó de cargar."""
     resp = requests.get(f"{DAEMON_URL}/estado", timeout=10)
     data = resp.json()
+    cargados = data.get("modelos_cargados")
+    cargados_txt = f"Cargados en VRAM: {', '.join(cargados)}." if cargados else "Nada cargado en VRAM (arranque en frío si se pide algo ahora)."
     if data["procesando"]:
-        return f"Ocupado: procesando '{data['procesando']}' (job_id={data['job_id_actual']}), {data['en_cola']} en cola."
-    return "Libre, no hay nada corriendo ni en cola."
+        return f"Ocupado: procesando '{data['procesando']}' (job_id={data['job_id_actual']}), {data['en_cola']} en cola. {cargados_txt}"
+    return f"Libre, no hay nada corriendo ni en cola. {cargados_txt}"
 
 
 def _format(data):

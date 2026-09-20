@@ -28,8 +28,32 @@ def _extract_keywords(query):
 
 OLLAMA_EMBED_URL = "http://localhost:11434/api/embeddings"
 OLLAMA_GENERATE_URL = "http://localhost:11434/api/generate"
+OLLAMA_PS_URL = "http://localhost:11434/api/ps"
+
+# Filosofía: preferir arranque en frío y liberar VRAM cuando no se usa, en vez de tener el
+# modelo cargado todo el tiempo por "las dudas" — la GPU la necesita el usuario para otras
+# cosas (dev, juegos, etc.). keep_alive corto en vez de "Forever" (default de este servidor).
+KEEP_ALIVE_DEFAULT = "2m"
 
 _INDEX_CACHE = None
+
+
+def precalentar(model, keep_alive=KEEP_ALIVE_DEFAULT):
+    """Carga el modelo a VRAM sin generar nada (prompt vacío = solo load, según la API de
+    Ollama). Para que un agente dispare esto ANTES de saber que va a necesitar el modelo, y
+    siga con otra cosa mientras carga, en vez de pagar el arranque en frío recién al pedir."""
+    requests.post(
+        OLLAMA_GENERATE_URL,
+        json={"model": model, "prompt": "", "keep_alive": keep_alive},
+        timeout=120,
+    )
+
+
+def modelo_cargado(model):
+    """True si el modelo ya está residente en VRAM (para no bloquear esperando la carga)."""
+    resp = requests.get(OLLAMA_PS_URL, timeout=10)
+    resp.raise_for_status()
+    return any(m["name"] == model for m in resp.json().get("models", []))
 
 
 def _load_index(index_path):
@@ -47,8 +71,12 @@ def _cosine(a, b):
     return dot / (na * nb) if na and nb else 0.0
 
 
-def embed_query(text, model="mxbai-embed-large"):
-    resp = requests.post(OLLAMA_EMBED_URL, json={"model": model, "prompt": text}, timeout=60)
+def embed_query(text, model="mxbai-embed-large", keep_alive=KEEP_ALIVE_DEFAULT):
+    resp = requests.post(
+        OLLAMA_EMBED_URL,
+        json={"model": model, "prompt": text, "keep_alive": keep_alive},
+        timeout=60,
+    )
     resp.raise_for_status()
     return resp.json()["embedding"]
 
@@ -84,7 +112,10 @@ def ask(query, index_path, model, top_k=10, embed_model="mxbai-embed-large"):
         # sampling default aunque la info correcta esté en el contexto (falso negativo
         # intermitente, no una falla de retrieval) — bajar la temperatura lo hace más
         # consistente en usar lo que realmente tiene.
-        json={"model": model, "prompt": prompt, "stream": False, "options": {"temperature": 0.2}},
+        json={
+            "model": model, "prompt": prompt, "stream": False,
+            "options": {"temperature": 0.2}, "keep_alive": KEEP_ALIVE_DEFAULT,
+        },
         timeout=300,
     )
     resp.raise_for_status()

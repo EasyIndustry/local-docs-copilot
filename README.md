@@ -52,6 +52,21 @@ barata implementada en `corpus_index/retrieve.py::search()`: un **boost de keywo
 empujan hacia arriba antes de rankear por coseno, proporcional a cuántos términos matchea. No
 reemplaza un BM25/keyword search de verdad, pero es gratis y ayuda bastante.
 
+## Arranque en frío por diseño (no ocupar VRAM sin usarla)
+
+Decisión explícita: el copiloto **no** mantiene el modelo cargado en VRAM todo el tiempo — la
+GPU la necesitás para otras cosas (dev, juegos, lo que sea), y pagar un arranque en frío
+(10-60s según el modelo y tu hardware) es aceptable si el agente que lo pide lo sabe de
+antemano. `corpus_index/retrieve.py` manda `keep_alive: "2m"` en cada llamado a Ollama — a los
+2 minutos de inactividad, libera la VRAM solo (el default de muchos servidores Ollama es
+mantenerlo cargado indefinidamente, lo cual desperdicia recursos si no lo estás usando).
+
+Para no pagar el arranque en frío justo cuando hace falta la respuesta:
+1. Llamá `precalentar_modelo()` apenas empieza la tarea (no bloquea, dispara la carga).
+2. Seguí con otra cosa mientras tanto.
+3. Llamá `estado_cola()` para confirmar que el modelo ya figura en `modelos_cargados`, o
+   directamente `preguntar_docs(...)` (que espera lo que falte de carga si no terminó).
+
 ## Instalación
 
 ```bash
@@ -77,8 +92,9 @@ claude mcp add doc-copiloto -s user -- $(pwd)/.venv/bin/python $(pwd)/mcp_server
 
 - `preguntar_docs(pregunta, modelo?, top_k?)` — RAG completo, responde con el LLM local.
 - `buscar_docs(pregunta, top_k?)` — solo retrieval, sin resumir (para citar textual).
+- `precalentar_modelo(modelo?)` — carga el modelo a VRAM sin preguntarle nada todavía.
 - `consultar_estado(job_id)` — si tu pedido quedó encolado por estar el demonio ocupado.
-- `estado_cola()` — mirar si hay algo corriendo/encolado antes de mandar un pedido pesado.
+- `estado_cola()` — mirar si hay algo corriendo/encolado y qué está cargado en VRAM ahora.
 
 ## Benchmark propio
 

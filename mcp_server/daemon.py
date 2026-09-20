@@ -30,8 +30,12 @@ import time
 import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
+import requests
+
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "corpus_index"))
-from retrieve import ask, search  # noqa: E402
+from retrieve import ask, precalentar, search  # noqa: E402
+
+OLLAMA_PS_URL = "http://localhost:11434/api/ps"
 
 INDEX_PATH = os.path.join(os.path.dirname(__file__), "..", "corpus_index", "index.json")
 HOST, PORT = "127.0.0.1", 8799
@@ -61,6 +65,10 @@ def _worker():
                     top_k=job["args"].get("top_k", 10),
                 )
                 result = f"{r['answer']}\n\nFuentes: {', '.join(r['sources'])}"
+            elif job["tool"] == "precalentar":
+                modelo = job["args"].get("modelo", "qwen3:4b-instruct")
+                precalentar(modelo)
+                result = f"{modelo} cargado en VRAM."
             else:
                 raise ValueError(f"tool desconocida: {job['tool']}")
             with _lock:
@@ -113,11 +121,17 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         if self.path == "/estado":
+            try:
+                ps = requests.get(OLLAMA_PS_URL, timeout=5).json().get("models", [])
+                modelos_cargados = [m["name"] for m in ps]
+            except Exception:
+                modelos_cargados = None  # Ollama no responde; no bloquear /estado por eso
             with _lock:
                 self._send(200, {
                     "procesando": _jobs.get(_current_job_id, {}).get("tool") if _current_job_id else None,
                     "job_id_actual": _current_job_id,
                     "en_cola": _queue.qsize(),
+                    "modelos_cargados": modelos_cargados,
                 })
             return
         if self.path.startswith("/job/"):
